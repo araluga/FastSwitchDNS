@@ -20,10 +20,10 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore **/*.csproj
+      run: dotnet restore src/FastSwitchDNS.csproj
 
-    - name: Build
-      run: dotnet build **/*.csproj --configuration Release --no-restore
+    - name: Build project
+      run: dotnet build src/FastSwitchDNS.csproj --configuration Release --no-restore
 
     - name: Run tests
-      run: dotnet test tests/ --no-build --verbosity normal
+      run: dotnet test tests --verbosity normal
