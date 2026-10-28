@@ -12,6 +12,7 @@ namespace FastSwitchDNS
         readonly TextBox primary = new TextBox();
         readonly TextBox secondary = new TextBox();
         readonly TextBox extra = new TextBox();
+        readonly TextBox doh = new TextBox();
 
         public DnsPreset Result { get; private set; }
         public bool ApplyNow { get; private set; }
@@ -59,6 +60,10 @@ namespace FastSwitchDNS
             table.Controls.Add(new Label());
             table.Controls.Add(extra);
 
+            // Windows 10 can't use a DoH template, so don't ask for one
+            if (DnsManager.DohSupported())
+                Row(L.DohLabel, doh, L.DohHint);
+
             var buttons = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.RightToLeft,
@@ -80,29 +85,60 @@ namespace FastSwitchDNS
             CancelButton = cancel;
         }
 
-        void Submit(bool applyNow)
+        internal TextBox NameBox => name;
+        internal TextBox PrimaryBox => primary;
+        internal TextBox SecondaryBox => secondary;
+        internal TextBox ExtraBox => extra;
+        internal TextBox DohBox => doh;
+
+        /// <summary>Shows a validation warning; tests replace it to avoid a modal message box.</summary>
+        internal Action<string> ShowWarning;
+
+        internal enum Field { Name, Primary, Doh }
+
+        /// <summary>Checks the entered values. Returns null and the preset, or an error message and the field to fix.</summary>
+        internal static string Validate(string nameText, string primaryText, string secondaryText, string extraText,
+            string dohText, out DnsPreset preset, out Field field)
         {
-            var title = name.Text.Trim().Replace("=", "");
-            if (title.Length == 0) { Warn(L.NeedName, name); return; }
+            preset = null;
+            field = Field.Name;
+            var title = (nameText ?? "").Trim().Replace("=", "");
+            if (title.Length == 0) return L.NeedName;
             if (Presets.BuiltIn.Any(p => p.Name.Equals(title, StringComparison.OrdinalIgnoreCase)))
+                return L.NameTaken;
+
+            field = Field.Primary;
+            if ((primaryText ?? "").Trim().Length == 0) return L.NeedPrimary;
+
+            var all = string.Join(",", primaryText, secondaryText, extraText);
+            var servers = Presets.ParseServers(all, out var bad);
+            if (bad != null) return L.BadAddress(bad);
+
+            field = Field.Doh;
+            var template = (dohText ?? "").Trim();
+            if (template.Length > 0 && !Presets.IsValidTemplate(template)) return L.BadTemplate(template);
+
+            preset = new DnsPreset { Name = title, Servers = servers, DohTemplate = template.Length > 0 ? template : null };
+            return null;
+        }
+
+        internal void Submit(bool applyNow)
+        {
+            var error = Validate(name.Text, primary.Text, secondary.Text, extra.Text, doh.Text, out var preset, out var field);
+            if (error != null)
             {
-                Warn(L.NameTaken, name);
+                Warn(error, field == Field.Name ? name : field == Field.Doh ? doh : primary);
                 return;
             }
-            if (primary.Text.Trim().Length == 0) { Warn(L.NeedPrimary, primary); return; }
-
-            var all = string.Join(",", primary.Text, secondary.Text, extra.Text);
-            var servers = Presets.ParseServers(all, out var bad);
-            if (bad != null) { Warn(L.BadAddress(bad), primary); return; }
-
-            Result = new DnsPreset { Name = title, Servers = servers };
+            Result = preset;
             ApplyNow = applyNow;
             DialogResult = DialogResult.OK;
         }
 
         void Warn(string message, Control focus)
         {
-            MessageBox.Show(this, message, L.DialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (ShowWarning != null) ShowWarning(message);
+            else MessageBox.Show(this, message, L.DialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             focus.Focus();
         }
 
